@@ -302,18 +302,6 @@ class PatternMask extends BaseMask {
     return true;
   }
 
-  _appendFixedEnd (res) {
-    for (var di=this._mapPosToDefIndex(res.length); ; ++di) {
-      var def = this.def(di, res);
-      if (!def) break;
-
-      if (this._isHiddenHollow(di)) continue;
-      if (this._isInput(di)) break;
-      if (di >= res.length) res += def.char;
-    }
-    return res;
-  }
-
   _appendPlaceholderEnd (res, toPos) {
     var toDefIndex = toPos && this._mapPosToDefIndex(toPos);
     for (var di=this._mapPosToDefIndex(res.length); !toDefIndex || di < toDefIndex; ++di) {

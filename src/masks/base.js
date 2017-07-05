@@ -186,5 +186,17 @@ class BaseMask {
   // override
   resolve (str, details) { return str; }
 
+  _insert (str, skipUnresolvedInput) {
+    for (var ci=0; ci < str.length; ++ci) {
+      if (!this._insertChar(str[ci]) && skipUnresolvedInput) return false;
+    }
+    return true;
+  }
+
+  _insertChar (ch) {
+    this._rawValue += ch;
+    return true;
+  }
+
   _calcUnmasked (value) { return value; }
 }
