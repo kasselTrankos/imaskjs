@@ -9,6 +9,7 @@ class PatternMask extends BaseMask {
 
     this._hollows = [];
     this.placeholder = opts.placeholder;
+    this.groups = opts.groups;
     this.definitions = {
       ...PatternMask.DEFINITIONS,
       ...opts.definitions
@@ -35,6 +36,13 @@ class PatternMask extends BaseMask {
     this.el.removeEventListener('click', this._alignCursorFriendly);
   }
 
+  group (name) {
+    var offsets = this._groupOffsets[name];
+    return offsets ?
+      offsets.map(off => this._extractInput(off, off + this.groups[name].length)) :
+      [];
+  }
+
   _installDefinitions (definitions) {
     this._definitions = definitions;
     this._charDefs = [];
@@ -42,6 +50,20 @@ class PatternMask extends BaseMask {
 
     var pattern = this.mask;
     if (!pattern || !definitions) return;
+
+    if (this.groups) {
+      // preprocess groups
+      this._groupOffsets = Object.keys(this.groups).reduce((offsets, gName) => {
+        var gPattern = this.groups[gName];
+        var offsetDiff = gPattern.length - gName.length;
+        pattern = pattern.replace(new RegExp(gName, 'g'), (match, offset, str) => {
+          if (!offsets[gName]) offsets[gName] = [];
+          offsets[gName].push(offset + offsets[gName].length * offsetDiff);
+          return gPattern;
+        });
+        return offsets;
+      }, {});
+    }
 
     var unmaskingBlock = false;
     var optionalBlock = false;
@@ -124,7 +146,6 @@ class PatternMask extends BaseMask {
         resolved = !!chres;
         skipped = !chres && !def.optional;
 
-        // if ok - next di
         if (chres) {
           chres = conform(chres, ch);
         } else {
@@ -166,11 +187,11 @@ class PatternMask extends BaseMask {
     return [str, this._hollows, overflow];
   }
 
-  _extractInput (str, fromPos=0, toPos) {
+  _extractInput (fromIndex=0, toIndex) {
     var input = '';
+    var str = this.rawValue;
 
-    var toDefIndex = toPos && this._mapPosToDefIndex(toPos);
-    for (var ci=0, di=this._mapPosToDefIndex(fromPos); ci<str.length && (!toDefIndex || di < toDefIndex); ++di) {
+    for (var ci=this._mapDefIndexToPos(fromIndex), di=fromIndex; ci<str.length && (!toIndex || di < toIndex); ++di) {
       var ch = str[ci];
       var def = this.def(di, str);
 
@@ -183,13 +204,12 @@ class PatternMask extends BaseMask {
     return input;
   }
 
-  _extractInputChunks (str, stops) {
+  _extractInputChunks (stops) {
     var chunks = [];
-    for (var si=0; si<stops.length && str; ++si) {
+    for (var si=0; si<stops.length; ++si) {
       var s = stops[si];
       var s2 = stops[si+1];
-      chunks.push([s, this._extractInput(str, s, s2)]);
-      if (s2) str = str.slice(s2 - s);
+      chunks.push([s, this._extractInput(s, s2)]);
     }
     return chunks;
   }
@@ -229,15 +249,16 @@ class PatternMask extends BaseMask {
 
     // save hollow during generation
     var hollows = this._hollows;
+    var res;
 
     var insertSteps = [[head, hollows.slice()]];
 
-    for (var ci=0; ci<inserted.length && !overflow; ++ci) {
+    for (var ci=0; ci<inserted.length; ++ci) {
       var ch = inserted[ci];
-      var [res, hollows, overflow] = this._appendTail(head, ch, false);
-      this._hollows = hollows;
-      if (!overflow && res !== head) {
-        insertSteps.push([res, hollows]);
+      [res, this._hollows, overflow] = this._appendTail(head, ch, false);
+      if (overflow) break;
+      if (res !== head) {
+        insertSteps.push([res, this._hollows]);
         head = res;
       }
     }
@@ -256,12 +277,11 @@ class PatternMask extends BaseMask {
     var tailPos = startChangePos + removedCount;
     var tailDefIndex = this._mapPosToDefIndex(tailPos);
     var tailAlignStopsPos = [
-      tailPos,
+      tailDefIndex,
       ...this._alignStops
         .filter(s => s >= tailDefIndex)
-        .map(s => this._mapDefIndexToPos(s))
     ];
-    var tailInputChunks = this._extractInputChunks(details.tail, tailAlignStopsPos);
+    var tailInputChunks = this._extractInputChunks(tailAlignStopsPos);
 
     // remove hollows after cursor
     var lastHollowIndex = this._mapPosToDefIndex(startChangePos);
@@ -381,6 +401,13 @@ class PatternMask extends BaseMask {
   set definitions (defs) {
     this._installDefinitions(defs);
     this._refreshValue();
+  }
+
+  get groups () { return this._groups; }
+
+  set groups (groups) {
+    this._groups = groups;
+    if (this._initialized) this.definitions = this.definitions;
   }
 
   get mask () { return this._mask; }

@@ -161,7 +161,7 @@ class BaseMask {
     this._abortUpdateCursor();
     this._changingCursorPos = cursorPos;
     this._cursorChanging = setTimeout(() => {
-      this._abortUpdateCursor();
+       this._abortUpdateCursor();
       this.cursorPos = this._changingCursorPos;
     }, 10);
   }
@@ -188,12 +188,12 @@ class BaseMask {
 
   _insert (str, skipUnresolvedInput) {
     for (var ci=0; ci < str.length; ++ci) {
-      if (!this._insertChar(str[ci]) && skipUnresolvedInput) return false;
+      if (!this._insertChar(str[ci], skipUnresolvedInput)) return false;
     }
     return true;
   }
 
-  _insertChar (ch) {
+  _insertChar (ch, skipUnresolvedInput) {
     this._rawValue += ch;
     return true;
   }

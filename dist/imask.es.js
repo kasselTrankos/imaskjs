@@ -267,12 +267,12 @@ var BaseMask = function () {
 
   BaseMask.prototype._insert = function _insert(str, skipUnresolvedInput) {
     for (var ci = 0; ci < str.length; ++ci) {
-      if (!this._insertChar(str[ci]) && skipUnresolvedInput) return false;
+      if (!this._insertChar(str[ci], skipUnresolvedInput)) return false;
     }
     return true;
   };
 
-  BaseMask.prototype._insertChar = function _insertChar(ch) {
+  BaseMask.prototype._insertChar = function _insertChar(ch, skipUnresolvedInput) {
     this._rawValue += ch;
     return true;
   };
@@ -364,6 +364,7 @@ var PatternMask = function (_BaseMask) {
 
     _this._hollows = [];
     _this.placeholder = opts.placeholder;
+    _this.groups = opts.groups;
     _this.definitions = _extends({}, PatternMask.DEFINITIONS, opts.definitions);
 
     _this._alignCursor = _this._alignCursor.bind(_this);
@@ -388,13 +389,38 @@ var PatternMask = function (_BaseMask) {
     this.el.removeEventListener('click', this._alignCursorFriendly);
   };
 
+  PatternMask.prototype.group = function group(name) {
+    var _this2 = this;
+
+    var offsets = this._groupOffsets[name];
+    return offsets ? offsets.map(function (off) {
+      return _this2._extractInput(off, off + _this2.groups[name].length);
+    }) : [];
+  };
+
   PatternMask.prototype._installDefinitions = function _installDefinitions(definitions) {
+    var _this3 = this;
+
     this._definitions = definitions;
     this._charDefs = [];
     this._alignStops = [];
 
     var pattern = this.mask;
     if (!pattern || !definitions) return;
+
+    if (this.groups) {
+      // preprocess groups
+      this._groupOffsets = Object.keys(this.groups).reduce(function (offsets, gName) {
+        var gPattern = _this3.groups[gName];
+        var offsetDiff = gPattern.length - gName.length;
+        pattern = pattern.replace(new RegExp(gName, 'g'), function (match, offset, str) {
+          if (!offsets[gName]) offsets[gName] = [];
+          offsets[gName].push(offset + offsets[gName].length * offsetDiff);
+          return gPattern;
+        });
+        return offsets;
+      }, {});
+    }
 
     var unmaskingBlock = false;
     var optionalBlock = false;
@@ -477,7 +503,6 @@ var PatternMask = function (_BaseMask) {
         resolved = !!chres;
         skipped = !chres && !def.optional;
 
-        // if ok - next di
         if (chres) {
           chres = conform(chres, ch);
         } else {
@@ -526,14 +551,14 @@ var PatternMask = function (_BaseMask) {
     return [str, this._hollows, overflow];
   };
 
-  PatternMask.prototype._extractInput = function _extractInput(str) {
-    var fromPos = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 0;
-    var toPos = arguments[2];
+  PatternMask.prototype._extractInput = function _extractInput() {
+    var fromIndex = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : 0;
+    var toIndex = arguments[1];
 
     var input = '';
+    var str = this.rawValue;
 
-    var toDefIndex = toPos && this._mapPosToDefIndex(toPos);
-    for (var ci = 0, di = this._mapPosToDefIndex(fromPos); ci < str.length && (!toDefIndex || di < toDefIndex); ++di) {
+    for (var ci = this._mapDefIndexToPos(fromIndex), di = fromIndex; ci < str.length && (!toIndex || di < toIndex); ++di) {
       var ch = str[ci];
       var def = this.def(di, str);
 
@@ -546,13 +571,12 @@ var PatternMask = function (_BaseMask) {
     return input;
   };
 
-  PatternMask.prototype._extractInputChunks = function _extractInputChunks(str, stops) {
+  PatternMask.prototype._extractInputChunks = function _extractInputChunks(stops) {
     var chunks = [];
-    for (var si = 0; si < stops.length && str; ++si) {
+    for (var si = 0; si < stops.length; ++si) {
       var s = stops[si];
       var s2 = stops[si + 1];
-      chunks.push([s, this._extractInput(str, s, s2)]);
-      if (s2) str = str.slice(s2 - s);
+      chunks.push([s, this._extractInput(s, s2)]);
     }
     return chunks;
   };
@@ -570,10 +594,10 @@ var PatternMask = function (_BaseMask) {
   };
 
   PatternMask.prototype._hiddenHollowsBefore = function _hiddenHollowsBefore(defIndex) {
-    var _this2 = this;
+    var _this4 = this;
 
     return this._hollows.filter(function (h) {
-      return h < defIndex && _this2._isHiddenHollow(h);
+      return h < defIndex && _this4._isHiddenHollow(h);
     });
   };
 
@@ -596,20 +620,22 @@ var PatternMask = function (_BaseMask) {
 
     // save hollow during generation
     var hollows = this._hollows;
+    var res;
 
     var insertSteps = [[head, hollows.slice()]];
 
-    for (var ci = 0; ci < inserted.length && !overflow; ++ci) {
+    for (var ci = 0; ci < inserted.length; ++ci) {
       var ch = inserted[ci];
 
-      var _appendTail3 = this._appendTail(head, ch, false),
-          res = _appendTail3[0],
-          hollows = _appendTail3[1],
-          overflow = _appendTail3[2];
+      var _appendTail3 = this._appendTail(head, ch, false);
 
-      this._hollows = hollows;
-      if (!overflow && res !== head) {
-        insertSteps.push([res, hollows]);
+      res = _appendTail3[0];
+      this._hollows = _appendTail3[1];
+      overflow = _appendTail3[2];
+
+      if (overflow) break;
+      if (res !== head) {
+        insertSteps.push([res, this._hollows]);
         head = res;
       }
     }
@@ -621,20 +647,16 @@ var PatternMask = function (_BaseMask) {
   };
 
   PatternMask.prototype.resolve = function resolve(str, details) {
-    var _this3 = this;
-
     var cursorPos = details.cursorPos;
     var startChangePos = details.startChangePos;
     var inserted = details.inserted;
     var removedCount = details.removed.length;
     var tailPos = startChangePos + removedCount;
     var tailDefIndex = this._mapPosToDefIndex(tailPos);
-    var tailAlignStopsPos = [tailPos].concat(this._alignStops.filter(function (s) {
+    var tailAlignStopsPos = [tailDefIndex].concat(this._alignStops.filter(function (s) {
       return s >= tailDefIndex;
-    }).map(function (s) {
-      return _this3._mapDefIndexToPos(s);
     }));
-    var tailInputChunks = this._extractInputChunks(details.tail, tailAlignStopsPos);
+    var tailInputChunks = this._extractInputChunks(tailAlignStopsPos);
 
     // remove hollows after cursor
     var lastHollowIndex = this._mapPosToDefIndex(startChangePos);
@@ -825,10 +847,10 @@ var PatternMask = function (_BaseMask) {
   }, {
     key: 'placeholderLabel',
     get: function get$$1() {
-      var _this4 = this;
+      var _this5 = this;
 
       return this.defs().map(function (def) {
-        return def.type === PatternMask.DEF_TYPES.FIXED ? def.char : !def.optional ? _this4._placeholder.char : '';
+        return def.type === PatternMask.DEF_TYPES.FIXED ? def.char : !def.optional ? _this5._placeholder.char : '';
       }).join('');
     }
   }, {
@@ -839,6 +861,15 @@ var PatternMask = function (_BaseMask) {
     set: function set$$1(defs) {
       this._installDefinitions(defs);
       this._refreshValue();
+    }
+  }, {
+    key: 'groups',
+    get: function get$$1() {
+      return this._groups;
+    },
+    set: function set$$1(groups) {
+      this._groups = groups;
+      if (this._initialized) this.definitions = this.definitions;
     }
   }, {
     key: 'mask',

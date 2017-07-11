@@ -293,9 +293,18 @@ var mask = new IMask(element, {
       });
 
       var customMask = new IMask(document.getElementById('custom-mask'), {
-          mask: '000[aaa]XXX\'***',
+          // mask: '000[aaa]XXX\'***',
+          // placeholder: {
+          //   show: 'always'
+          // }
+          mask: 'd.m.Y',
           placeholder: {
             show: 'always'
+          },
+          groups: {
+            d: '00',
+            m: '00',
+            Y: '0000'
           }
       });
       customMask.on('accept', function() {
